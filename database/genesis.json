@@ -1,0 +1,8 @@
+{
+  "genesis_time": "2021-03-23T00:00:00.000000000Z",
+  "chain_id": "the-blockchain-101-ledger",
+  "balances": {
+      "guillem": 6000000,
+      "charles": 4000000
+  }
+}
