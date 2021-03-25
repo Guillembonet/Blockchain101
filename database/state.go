@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"io/ioutil"
+	"crypto/sha256"
 )
 
 type State struct {
@@ -13,7 +15,10 @@ type State struct {
 	txMempool []Tx
 
 	dbFile *os.File
+	snapshot Snapshot
 }
+
+type Snapshot [32]byte
 
 func NewStateFromDisk() (*State, error) {
 	cwd, err := os.Getwd()
@@ -38,7 +43,7 @@ func NewStateFromDisk() (*State, error) {
 
 	scanner := bufio.NewScanner(f)
 
-	state := &State{balances, make([]Tx, 0), f}
+	state := &State{balances, make([]Tx, 0), f, Snapshot{}}
 
 	for scanner.Scan() {
 		if err := scanner.Err(); err != nil {
@@ -66,23 +71,32 @@ func (s *State) Add(tx Tx) error {
 	return nil
 }
 
-func (s *State) Persist() error {
+func (s *State) Persist() (Snapshot, error) {
 	mempool := make([]Tx, len(s.txMempool))
 	copy(mempool, s.txMempool)
 
 	for i := 0; i < len(mempool); i++ {
 		txJson, err := json.Marshal(mempool[i])
 		if err != nil {
-			return err
+			return Snapshot{}, err
 		}
 
+		fmt.Printf("Persisting new TX to disk:\n")
+		fmt.Printf("\t%s\n", txJson)
 		if _, err = s.dbFile.Write(append(txJson, '\n')); err != nil {
-			return err
+			return Snapshot{},err
 		}
+
+		err = s.doSnapshot()
+		if err != nil {
+			return Snapshot{}, err
+		}
+		fmt.Printf("New DB Snapshot: %x\n", s.snapshot)
+
 		s.txMempool = s.txMempool[1:]
 	}
 
-	return nil
+	return s.snapshot, nil
 }
 
 func (s *State) Close() {
@@ -103,4 +117,20 @@ func (s *State) apply(tx Tx) error {
 	s.Balances[tx.To] += tx.Value
 
 	return nil
+}
+
+func (s *State) doSnapshot() error {
+   // Re-read the whole file from the first byte
+   _, err := s.dbFile.Seek(0, 0)
+   if err != nil {
+      return err
+   }
+
+   txsData, err := ioutil.ReadAll(s.dbFile)
+   if err != nil {
+      return err
+   }
+   s.snapshot = sha256.Sum256(txsData)
+
+   return nil
 }
